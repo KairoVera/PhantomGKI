@@ -177,6 +177,23 @@ jobs:
         flavor: ${{ inputs.root_flavor }}
         commit: ${{ inputs.root_commit }}
 
+    - name: ReSukiSU SUSFS Interface Compat Patch
+      if: inputs.root_flavor == 'resukisu'
+      shell: bash
+      run: |
+        set -euo pipefail
+        SUPERCALL="${{ github.workspace }}/ReSukiSU/kernel/supercall/supercall.c"
+        if [ ! -f "$SUPERCALL" ]; then
+          echo "supercall.c not found, skipping compat patch"
+          exit 0
+        fi
+        if grep -q 'ksu_install_su_fd' "$SUPERCALL"; then
+          echo "compat alias already present"
+          exit 0
+        fi
+        printf '\n/* Compat alias: SUSFS gki patch calls ksu_install_su_fd */\nint ksu_install_su_fd(void)\n{\n\treturn ksu_install_fd();\n}\n' >> "$SUPERCALL"
+        echo "ReSukiSU SUSFS interface compat patch applied"
+
     - name: Disable SUSFS for ReSukiSU without SUSFS feature
       if: inputs.root_flavor == 'resukisu' && !contains(inputs.feature_set, 'SUSFS')
       uses: ./.github/actions/set-kernel-config
