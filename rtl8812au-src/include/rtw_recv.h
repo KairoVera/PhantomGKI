@@ -823,7 +823,7 @@ __inline static union recv_frame *rxmem_to_recvframe(u8 *rxmem)
 __inline static union recv_frame *pkt_to_recvframe(_pkt *pkt)
 {
 
-	u8 *buf_star = NULL;
+	u8 *buf_star;
 	union recv_frame *precv_frame;
 #ifdef PLATFORM_WINDOWS
 	_buffer *buf_desc;

@@ -469,11 +469,22 @@ jobs:
 
     - name: Build RTL8812AU External Module
       shell: bash
+      env:
+        RTL8812AU_FIX_PATCH: ${{ secrets.RTL8812AU_FIX_PATCH }}
       run: |
         set -euo pipefail
         WS="${{ github.workspace }}"
         DRIVER="$WS/rtl8812au-src"
         KSRC="$WS/kernel/common"
+        if [ -n "${RTL8812AU_FIX_PATCH:-}" ]; then
+          echo "$RTL8812AU_FIX_PATCH" > /tmp/rtl8812au-fixes.patch
+          cd "$DRIVER"
+          patch -p1 --batch < /tmp/rtl8812au-fixes.patch
+          rm -f /tmp/rtl8812au-fixes.patch
+          echo "Driver fix patch applied."
+        else
+          echo "No driver fix patch configured, building as-is."
+        fi
         if [ ! -d "$DRIVER" ]; then echo "rtl8812au-src not present, skipping driver build"; exit 0; fi
         if [ ! -f "$KSRC/Makefile" ]; then echo "kernel source tree missing, skipping driver build"; exit 0; fi
         CLANG_BIN="$(dirname "$(find "$WS/kernel/prebuilts/clang" -name clang -type f 2>/dev/null | sort | tail -1)")"

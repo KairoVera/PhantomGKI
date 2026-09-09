@@ -6,18 +6,18 @@ EXTRA_CFLAGS += -Wno-unused-label
 #EXTRA_CFLAGS += -Wno-unused-parameter
 EXTRA_CFLAGS += -Wno-unused-function
 EXTRA_CFLAGS += -Wno-implicit-fallthrough
-#EXTRA_CFLAGS += -Wno-cast-function-type  # GCC-only, clang 不识别
+EXTRA_CFLAGS += -Wno-cast-function-type
 EXTRA_CFLAGS += -Wno-missing-declarations
 EXTRA_CFLAGS += -Wno-missing-prototypes
 #EXTRA_CFLAGS += -Wno-error=cast-function-type
 #EXTRA_CFLAGS += -Wno-parentheses-equality
 #EXTRA_CFLAGS += -Wno-error=incompatible-pointer-types
-#EXTRA_CFLAGS += -Wno-stringop-overread  # GCC-only, clang 不识别
+EXTRA_CFLAGS += -Wno-stringop-overread
 #EXTRA_CFLAGS += -Wno-pointer-bool-conversion
 EXTRA_CFLAGS += -Wno-unknown-pragmas
 #EXTRA_CFLAGS += -Wno-unused
 EXTRA_CFLAGS += -Wno-address
-EXTRA_CFLAGS += -Wno-vla -g -Wno-packed-member-rewrite -Wno-gnu-variable-sized-type-not-at-end
+EXTRA_CFLAGS += -Wno-vla -g
 
 EXTRA_CFLAGS += -I$(src)/include -I$(srctree)/$(src)/include
 EXTRA_CFLAGS += -I$(src)/hal/phydm -I$(srctree)/$(src)/hal/phydm
