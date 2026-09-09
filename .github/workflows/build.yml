@@ -467,6 +467,32 @@ jobs:
       with:
         version: ${{ inputs.version }}
 
+    - name: Build RTL8812AU External Module
+      shell: bash
+      run: |
+        set -euo pipefail
+        WS="${{ github.workspace }}"
+        DRIVER="$WS/rtl8812au-src"
+        KSRC="$WS/kernel/common"
+        if [ ! -d "$DRIVER" ]; then echo "rtl8812au-src not present, skipping driver build"; exit 0; fi
+        if [ ! -f "$KSRC/Makefile" ]; then echo "kernel source tree missing, skipping driver build"; exit 0; fi
+        CLANG_BIN="$(dirname "$(find "$WS/kernel/prebuilts/clang" -name clang -type f 2>/dev/null | sort | tail -1)")"
+        if [ -z "${CLANG_BIN:-}" ] || [ ! -x "$CLANG_BIN/clang" ]; then echo "prebuilt clang not found" >&2; exit 1; fi
+        export PATH="$CLANG_BIN:$PATH"
+        command -v ld.lld >/dev/null 2>&1 || { echo "ld.lld not found in toolchain" >&2; exit 1; }
+        sudo -n ln -sf "$(command -v ld.lld)" /usr/local/bin/ld 2>/dev/null || true
+        if [ ! -f "$KSRC/.config" ]; then
+          make -C "$KSRC" ARCH=arm64 LLVM=1 gki_defconfig
+        fi
+        make -C "$KSRC" ARCH=arm64 LLVM=1 -j"$(nproc)" modules_prepare
+        make -C "$KSRC" ARCH=arm64 LLVM=1 -j"$(nproc)" \
+          CONFIG_PLATFORM_ANDROID_ARM64=y \
+          CONFIG_88XXAU=y \
+          M="$DRIVER" modules
+        mkdir -p "$WS/AnyKernel3/modules"
+        cp -v "$DRIVER"/*.ko "$WS/AnyKernel3/modules/"
+        echo "RTL8812AU module built and packaged into AnyKernel3/modules"
+
     - name: Get Cache Stats
       uses: ./.github/actions/cache-stats
       with:
