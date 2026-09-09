@@ -231,6 +231,22 @@ jobs:
         sublevel: ${{ steps.extract.outputs.sublevel }}
         root_flavor: ${{ inputs.root_flavor }}
 
+    - name: Fix statfs.c implicit declaration of susfs_sus_kstat_spoof_vfs_statfs
+      shell: bash
+      working-directory: ${{ github.workspace }}/kernel/common
+      run: |
+        set -euo pipefail
+        if [ -f fs/statfs.c ] && grep -q "susfs_sus_kstat_spoof_vfs_statfs" fs/statfs.c; then
+          if awk '/susfs_statfs_by_dentry/{exit 1} /extern int susfs_sus_kstat_spoof_vfs_statfs/{exit 0}' fs/statfs.c; then
+            echo "[*] fs/statfs.c already has forward declaration before use"
+          else
+            echo "[*] Patching fs/statfs.c: adding forward declaration before susfs_statfs_by_dentry"
+            sed -i 's/^static int susfs_statfs_by_dentry(struct dentry \*dentry, struct kstatfs \*buf, bool \*is_fuse)$/extern int susfs_sus_kstat_spoof_vfs_statfs(struct inode *inode, struct kstatfs *buf, bool *is_fuse);\nstatic int susfs_statfs_by_dentry(struct dentry *dentry, struct kstatfs *buf, bool *is_fuse)/' fs/statfs.c
+            grep -n "susfs_sus_kstat_spoof_vfs_statfs" fs/statfs.c | head -5
+          fi
+        else
+          echo "[*] fs/statfs.c not SUSFS-patched, skipping"
+        fi
     - name: Fix selinux_hide pointer-bool-conversion on 6.6+ (ALL branches)
       shell: bash
       run: |
