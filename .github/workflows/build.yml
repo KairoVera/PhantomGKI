@@ -552,10 +552,10 @@ jobs:
         echo "Using linker: $LLD_BIN"
         sudo -n ln -sf "$LLD_BIN" /usr/local/bin/ld 2>/dev/null || true
         if [ ! -f "$KSRC/.config" ]; then
-          make -C "$KSRC" ARCH=arm64 LLVM=1 gki_defconfig
+          make -C "$KSRC" ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
         fi
-        make -C "$KSRC" ARCH=arm64 LLVM=1 -j"$(nproc)" modules_prepare
-        make -C "$KSRC" ARCH=arm64 LLVM=1 -j"$(nproc)" \
+        make -C "$KSRC" ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)" modules_prepare
+        make -C "$KSRC" ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)" \
           CONFIG_PLATFORM_ANDROID_ARM64=y \
           CONFIG_88XXAU=y \
           M="$DRIVER" modules
