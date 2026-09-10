@@ -247,6 +247,22 @@ jobs:
         else
           echo "[*] fs/statfs.c not SUSFS-patched, skipping"
         fi
+    - name: Fix susfs.c missing security.h include
+      shell: bash
+      working-directory: ${{ github.workspace }}/kernel/common
+      run: |
+        set -euo pipefail
+        if [ -f fs/susfs.c ] && grep -q "security_sb_statfs" fs/susfs.c; then
+          if grep -q '#include <linux/security.h>' fs/susfs.c; then
+            echo "[*] fs/susfs.c already includes linux/security.h"
+          else
+            echo "[*] Patching fs/susfs.c: adding #include <linux/security.h>"
+            sed -i '0,/^#include/s//#include <linux\/security.h>\n#include/' fs/susfs.c
+            grep -n 'security.h' fs/susfs.c | head -3
+          fi
+        else
+          echo "[*] fs/susfs.c not present or no security_sb_statfs call, skipping"
+        fi
     - name: Fix selinux_hide pointer-bool-conversion on 6.6+ (ALL branches)
       shell: bash
       run: |
