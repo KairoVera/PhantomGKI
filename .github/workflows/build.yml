@@ -520,10 +520,17 @@ jobs:
         fi
         if [ ! -d "$DRIVER" ]; then echo "rtl8812au-src not present, skipping driver build"; exit 0; fi
         if [ ! -f "$KSRC/Makefile" ]; then echo "kernel source tree missing, skipping driver build"; exit 0; fi
-        command -v clang >/dev/null 2>&1 || { echo "clang not found in PATH" >&2; exit 1; }
-        echo "Using clang: $(command -v clang)"
-        command -v ld.lld >/dev/null 2>&1 || { echo "ld.lld not found in PATH" >&2; exit 1; }
-        sudo -n ln -sf "$(command -v ld.lld)" /usr/local/bin/ld 2>/dev/null || true
+        CLANG_BIN="$(command -v clang || command -v clang-12 || command -v clang-14 || command -v clang-15 || true)"
+        if [ -z "$CLANG_BIN" ]; then echo "no clang variant found in PATH" >&2; exit 1; fi
+        echo "Using clang: $CLANG_BIN"
+        CLANG_DIR="$(dirname "$CLANG_BIN")"
+        export PATH="$CLANG_DIR:$PATH"
+        if [ "$(basename "$CLANG_BIN")" != "clang" ]; then
+          sudo -n ln -sf "$CLANG_BIN" /usr/local/bin/clang 2>/dev/null || true
+        fi
+        LLD_BIN="$(command -v ld.lld || command -v lld || find "$CLANG_DIR" -name 'ld.lld*' -type f 2>/dev/null | head -1 || true)"
+        if [ -z "$LLD_BIN" ]; then echo "ld.lld not found" >&2; exit 1; fi
+        sudo -n ln -sf "$LLD_BIN" /usr/local/bin/ld 2>/dev/null || true
         if [ ! -f "$KSRC/.config" ]; then
           make -C "$KSRC" ARCH=arm64 LLVM=1 gki_defconfig
         fi
