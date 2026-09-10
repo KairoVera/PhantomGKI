@@ -551,13 +551,21 @@ jobs:
         if [ -z "$LLD_BIN" ]; then echo "ld.lld/lld not found in toolchain or build-tools" >&2; exit 1; fi
         echo "Using linker: $LLD_BIN"
         sudo -n ln -sf "$LLD_BIN" /usr/local/bin/ld 2>/dev/null || true
-        if [ ! -f "$KSRC/.config" ]; then
-          make -C "$KSRC" ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- gki_defconfig
+        MAKE_ARGS="ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu-"
+        KOUT=""
+        for d in /home/runner/out/common "$WS/out/common"; do
+          if [ -f "$d/.config" ]; then KOUT="$d"; break; fi
+        done
+        if [ -n "$KOUT" ]; then
+          echo "Using prepared kernel output dir: $KOUT"
+          MAKE_ARGS="$MAKE_ARGS O=$KOUT"
+        elif [ ! -f "$KSRC/.config" ]; then
+          make -C "$KSRC" $MAKE_ARGS gki_defconfig
+          make -C "$KSRC" $MAKE_ARGS -j"$(nproc)" modules_prepare
         fi
-        make -C "$KSRC" ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)" modules_prepare
-        make -C "$KSRC" ARCH=arm64 LLVM=1 LLVM_IAS=1 CROSS_COMPILE=aarch64-linux-gnu- -j"$(nproc)" \
+        make -C "$KSRC" $MAKE_ARGS -j"$(nproc)" \
           CONFIG_PLATFORM_ANDROID_ARM64=y \
-          CONFIG_88XXAU=y \
+          CONFIG_88XXAU=m \
           M="$DRIVER" modules
         mkdir -p "$WS/AnyKernel3/modules"
         cp -v "$DRIVER"/*.ko "$WS/AnyKernel3/modules/"
