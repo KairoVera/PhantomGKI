@@ -544,8 +544,12 @@ jobs:
         echo "Using clang: $CLANG_BIN"
         CLANG_DIR="$(dirname "$CLANG_BIN")"
         export PATH="$CLANG_DIR:$PATH"
-        LLD_BIN="$(find "$CLANG_DIR" -name 'ld.lld' -type f 2>/dev/null | head -1 || true)"
-        if [ -z "$LLD_BIN" ]; then echo "ld.lld not found in toolchain" >&2; exit 1; fi
+        LLD_BIN="$(find "$CLANG_DIR" "$WS/kernel/prebuilts-master" "$WS/kernel/build/build-tools" -name 'ld.lld' -type f 2>/dev/null | head -1 || true)"
+        if [ -z "$LLD_BIN" ]; then
+          LLD_BIN="$(find "$CLANG_DIR" -name 'lld' -type f 2>/dev/null | head -1 || true)"
+        fi
+        if [ -z "$LLD_BIN" ]; then echo "ld.lld/lld not found in toolchain or build-tools" >&2; exit 1; fi
+        echo "Using linker: $LLD_BIN"
         sudo -n ln -sf "$LLD_BIN" /usr/local/bin/ld 2>/dev/null || true
         if [ ! -f "$KSRC/.config" ]; then
           make -C "$KSRC" ARCH=arm64 LLVM=1 gki_defconfig
