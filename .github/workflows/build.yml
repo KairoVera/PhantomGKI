@@ -540,10 +540,10 @@ jobs:
           echo "::warning::RTL8812AU_GIT_TOKEN secret is EMPTY - falling back to GITHUB_TOKEN, which cannot read the private driver repo"
           TOKEN="$GITHUB_TOKEN"
         fi
-        CLONE_URL="https://x-access-token:***
+        CLONE_URL="https://x-access-token:${TOKEN}@github.com/${RTL8812AU_REPO}.git"
         # ---- 诊断：分清 DNS / 代理 / token 权限 三类失败 ----
         echo "=== RTL8812AU clone diagnostics ==="
-        getent hosts github.com >/dev/null 2>&1 && echo "github.com DNS: OK ($(getent hosts github.com | awk '{print $1}' | head -1))" || echo "github.com DNS: FAIL"
+        if getent hosts github.com >/dev/null 2>&1; then echo "github.com DNS: OK"; else echo "github.com DNS: FAIL"; fi
         env | grep -iE '^http_proxy|^https_proxy|^no_proxy|^HTTP_' || echo "(no proxy env vars)"
         git ls-remote https://github.com/Octocat/Hello-World.git HEAD >/dev/null 2>&1 && echo "public github reachable: YES" || echo "public github reachable: NO"
         git ls-remote "$CLONE_URL" HEAD >/dev/null 2>&1 && echo "private repo reachable w/ token: YES" || echo "private repo reachable w/ token: NO"
