@@ -520,12 +520,14 @@ jobs:
       shell: bash
       env:
         RTL8812AU_REPO: KairoVera/rtl8812au-phantom
+        RTL8812AU_GIT_TOKEN: ${{ secrets.RTL8812AU_GIT_TOKEN }}
       run: |
         set -euo pipefail
         WS="${{ github.workspace }}"
         KSRC="$WS/kernel/common"
         # 驱动源来自同账号私有仓库 rtl8812au-phantom（含全部修复）。
-        # 用 github.token 克隆：对本账号所有仓库自动有 repo:read，无需额外 PAT。
+        # 优先用专用 PAT secret (repo:read)；未配置时回退到 GITHUB_TOKEN。
+        TOKEN="${RTL8812AU_GIT_TOKEN:-$GITHUB_TOKEN}"
         git clone --depth 1 "https://x-access-token:***@github.com/${RTL8812AU_REPO}.git" "$WS/rtl8812au-phantom"
         DRIVER="$WS/rtl8812au-phantom"
         if [ ! -f "$KSRC/Makefile" ]; then echo "kernel source tree missing, skipping driver build"; exit 0; fi
