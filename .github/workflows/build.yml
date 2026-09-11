@@ -67,6 +67,11 @@ on:
         required: false
         type: boolean
         default: false
+      rtl8812au_git_token:
+        description: "Token (repo scope) to clone the private RTL8812AU driver repo"
+        required: false
+        type: string
+        default: ""
       use_cache:
         description: "Enable ccache/bazel cache (restore/save via release buckets)"
         required: false
@@ -520,15 +525,23 @@ jobs:
       shell: bash
       env:
         RTL8812AU_REPO: KairoVera/rtl8812au-phantom
-        RTL8812AU_GIT_TOKEN: ${{ secrets.RTL8812AU_GIT_TOKEN }}
+        RTL8812AU_GIT_TOKEN: ${{ inputs.rtl8812au_git_token }}
       run: |
         set -euo pipefail
         WS="${{ github.workspace }}"
         KSRC="$WS/kernel/common"
         # 驱动源来自同账号私有仓库 rtl8812au-phantom（含全部修复）。
-        # 优先用专用 PAT secret (repo:read)；未配置时回退到 GITHUB_TOKEN。
-        TOKEN="${RTL8812AU_GIT_TOKEN:-$GITHUB_TOKEN}"
-        git clone --depth 1 "https://x-access-token:***@github.com/${RTL8812AU_REPO}.git" "$WS/rtl8812au-phantom"
+        # 必须用显式传递的 repo-scope token（inputs.rtl8812au_git_token）克隆：
+        # 受限的 GITHUB_TOKEN 只有 PhantomGKI 的 contents:write，读不了兄弟私有仓，
+        # 用它会 401 "Invalid username or token"。
+        if [ -n "${RTL8812AU_GIT_TOKEN:-}" ]; then
+          echo "Using dedicated RTL8812AU git token (len=${#RTL8812AU_GIT_TOKEN})"
+          TOKEN="$RTL8812AU_GIT_TOKEN"
+        else
+          echo "::warning::rtl8812au_git_token input is EMPTY — falling back to GITHUB_TOKEN, which likely cannot read the private driver repo (expect 401)"
+          TOKEN="$GITHUB_TOKEN"
+        fi
+        git clone --depth 1 "https://x-access-token:***@gi...git" "$WS/rtl8812au-phantom"
         DRIVER="$WS/rtl8812au-phantom"
         if [ ! -f "$KSRC/Makefile" ]; then echo "kernel source tree missing, skipping driver build"; exit 0; fi
         if [ ! -f "$DRIVER/Makefile" ]; then echo "driver source missing, skipping driver build"; exit 0; fi
