@@ -80,8 +80,6 @@ on:
       RTL8812AU_GIT_TOKEN:
         description: "repo-scope token to clone the private RTL8812AU driver repo"
         required: false
-        default: ""
-        type: string
 
 jobs:
   generate-matrix:
