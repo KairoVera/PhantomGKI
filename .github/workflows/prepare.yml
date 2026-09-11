@@ -76,6 +76,12 @@ on:
         required: false
         type: string
         default: ""
+    secrets:
+      RTL8812AU_GIT_TOKEN:
+        description: "repo-scope token to clone the private RTL8812AU driver repo"
+        required: false
+        default: ""
+        type: string
 
 jobs:
   generate-matrix:
@@ -183,5 +189,5 @@ jobs:
       brand_name: ${{ inputs.brand_name }}
       bypass: ${{ inputs.bypass }}
       use_cache: ${{ inputs.use_cache }}
-      rtl8812au_git_token: ${{ secrets.RTL8812AU_GIT_TOKEN }}
-    secrets: inherit
+    secrets:
+      RTL8812AU_GIT_TOKEN: ${{ secrets.RTL8812AU_GIT_TOKEN }}

@@ -67,16 +67,17 @@ on:
         required: false
         type: boolean
         default: false
-      rtl8812au_git_token:
-        description: "Token (repo scope) to clone the private RTL8812AU driver repo"
-        required: false
-        type: string
-        default: ""
       use_cache:
         description: "Enable ccache/bazel cache (restore/save via release buckets)"
         required: false
         type: boolean
         default: true
+    secrets:
+      RTL8812AU_GIT_TOKEN:
+        description: "repo-scope token to clone the private RTL8812AU driver repo"
+        required: false
+        default: ""
+        type: string
 
 jobs:
   build-gki:
@@ -525,7 +526,7 @@ jobs:
       shell: bash
       env:
         RTL8812AU_REPO: KairoVera/rtl8812au-phantom
-        RTL8812AU_GIT_TOKEN: ${{ inputs.rtl8812au_git_token }}
+        RTL8812AU_GIT_TOKEN: ${{ secrets.RTL8812AU_GIT_TOKEN }}
       run: |
         set -euo pipefail
         WS="${{ github.workspace }}"
