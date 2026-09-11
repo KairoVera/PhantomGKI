@@ -519,23 +519,22 @@ jobs:
     - name: Build RTL8812AU External Module
       shell: bash
       env:
-        RTL8812AU_FIX_PATCH: ${{ secrets.RTL8812AU_FIX_PATCH }}
+        RTL8812AU_PAT: ${{ secrets.RTL8812AU_GIT_TOKEN }}
+        RTL8812AU_REPO: KairoVera/rtl8812au-phantom
       run: |
         set -euo pipefail
         WS="${{ github.workspace }}"
-        DRIVER="$WS/rtl8812au-src"
         KSRC="$WS/kernel/common"
-        if [ -n "${RTL8812AU_FIX_PATCH:-}" ]; then
-          echo "$RTL8812AU_FIX_PATCH" > /tmp/rtl8812au-fixes.patch
-          cd "$DRIVER"
-          patch -p1 --batch < /tmp/rtl8812au-fixes.patch
-          rm -f /tmp/rtl8812au-fixes.patch
-          echo "Driver fix patch applied."
-        else
-          echo "No driver fix patch configured, building as-is."
+        # 驱动源来自私有仓库 rtl8812au-phantom（含全部修复），用 repo:read PAT
+        # 认证克隆，取代原 public 基线 + secret 大补丁方案。
+        if [ -z "${RTL8812AU_PAT:-}" ]; then
+          echo "::error::secrets.RTL8812AU_GIT_TOKEN 未配置，无法克隆私有驱动仓库"
+          exit 1
         fi
-        if [ ! -d "$DRIVER" ]; then echo "rtl8812au-src not present, skipping driver build"; exit 0; fi
+        git clone --depth 1 "https://x-access-token:${RTL8812AU_PAT}@github.com/${RTL8812AU_REPO}.git" "$WS/rtl8812au-phantom"
+        DRIVER="$WS/rtl8812au-phantom"
         if [ ! -f "$KSRC/Makefile" ]; then echo "kernel source tree missing, skipping driver build"; exit 0; fi
+        if [ ! -f "$DRIVER/Makefile" ]; then echo "driver source missing, skipping driver build"; exit 0; fi
         CLANG_BIN="$(command -v clang || command -v clang-12 || true)"
         if [ -z "$CLANG_BIN" ]; then
           CLANG_BIN="$(find "$WS/kernel/prebuilts-master/clang/host/linux-x86" -path '*/bin/clang' -type f 2>/dev/null | sort | tail -1 || true)"
