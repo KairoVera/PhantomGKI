@@ -530,17 +530,31 @@ jobs:
         WS="${{ github.workspace }}"
         KSRC="$WS/kernel/common"
         # 驱动源来自同账号私有仓库 rtl8812au-phantom（含全部修复）。
-        # 必须用显式传递的 repo-scope token（inputs.rtl8812au_git_token）克隆：
+        # 必须由 main→prepare 显式映射进来的 secrets.RTL8812AU_GIT_TOKEN（repo 权限）克隆：
         # 受限的 GITHUB_TOKEN 只有 PhantomGKI 的 contents:write，读不了兄弟私有仓，
         # 用它会 401 "Invalid username or token"。
         if [ -n "${RTL8812AU_GIT_TOKEN:-}" ]; then
           echo "Using dedicated RTL8812AU git token (len=${#RTL8812AU_GIT_TOKEN})"
           TOKEN="$RTL8812AU_GIT_TOKEN"
         else
-          echo "::warning::rtl8812au_git_token input is EMPTY — falling back to GITHUB_TOKEN, which likely cannot read the private driver repo (expect 401)"
+          echo "::warning::RTL8812AU_GIT_TOKEN secret is EMPTY - falling back to GITHUB_TOKEN, which cannot read the private driver repo"
           TOKEN="$GITHUB_TOKEN"
         fi
-        git clone --depth 1 "https://x-access-token:***@gi...git" "$WS/rtl8812au-phantom"
+        CLONE_URL="https://x-access-token:***@gi...git"
+        # runner DNS/网络偶发抖动（"Could not resolve host"），重试 3 次
+        ok=1
+        for attempt in 1 2 3; do
+          if git clone --depth 1 "$CLONE_URL" "$WS/rtl8812au-phantom"; then
+            ok=0; break
+          fi
+          echo "RTL8812AU clone attempt $attempt failed; retrying in 10s..."
+          rm -rf "$WS/rtl8812au-phantom"; sleep 10
+        done
+        if [ "$ok" -ne 0 ]; then
+          echo "::error::failed to clone ${RTL8812AU_REPO} after 3 attempts (likely transient DNS on this runner - rerun the job on a fresh runner)"
+          exit 1
+        fi
+        echo "Cloned ${RTL8812AU_REPO} ($(git -C "$WS/rtl8812au-phantom" rev-parse --short HEAD))"
         DRIVER="$WS/rtl8812au-phantom"
         if [ ! -f "$KSRC/Makefile" ]; then echo "kernel source tree missing, skipping driver build"; exit 0; fi
         if [ ! -f "$DRIVER/Makefile" ]; then echo "driver source missing, skipping driver build"; exit 0; fi
