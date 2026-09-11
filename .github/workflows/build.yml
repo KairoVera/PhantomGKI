@@ -519,19 +519,14 @@ jobs:
     - name: Build RTL8812AU External Module
       shell: bash
       env:
-        RTL8812AU_PAT: ${{ secrets.RTL8812AU_GIT_TOKEN }}
         RTL8812AU_REPO: KairoVera/rtl8812au-phantom
       run: |
         set -euo pipefail
         WS="${{ github.workspace }}"
         KSRC="$WS/kernel/common"
-        # 驱动源来自私有仓库 rtl8812au-phantom（含全部修复），用 repo:read PAT
-        # 认证克隆，取代原 public 基线 + secret 大补丁方案。
-        if [ -z "${RTL8812AU_PAT:-}" ]; then
-          echo "::error::secrets.RTL8812AU_GIT_TOKEN 未配置，无法克隆私有驱动仓库"
-          exit 1
-        fi
-        git clone --depth 1 "https://x-access-token:${RTL8812AU_PAT}@github.com/${RTL8812AU_REPO}.git" "$WS/rtl8812au-phantom"
+        # 驱动源来自同账号私有仓库 rtl8812au-phantom（含全部修复）。
+        # 用 github.token 克隆：对本账号所有仓库自动有 repo:read，无需额外 PAT。
+        git clone --depth 1 "https://x-access-token:***@github.com/${RTL8812AU_REPO}.git" "$WS/rtl8812au-phantom"
         DRIVER="$WS/rtl8812au-phantom"
         if [ ! -f "$KSRC/Makefile" ]; then echo "kernel source tree missing, skipping driver build"; exit 0; fi
         if [ ! -f "$DRIVER/Makefile" ]; then echo "driver source missing, skipping driver build"; exit 0; fi
