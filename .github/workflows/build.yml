@@ -540,18 +540,24 @@ jobs:
           echo "::warning::RTL8812AU_GIT_TOKEN secret is EMPTY - falling back to GITHUB_TOKEN, which cannot read the private driver repo"
           TOKEN="$GITHUB_TOKEN"
         fi
-        CLONE_URL="https://x-access-token:***@gi...git"
-        # runner DNS/网络偶发抖动（"Could not resolve host"），重试 3 次
+        CLONE_URL="https://x-access-token:***
+        # ---- 诊断：分清 DNS / 代理 / token 权限 三类失败 ----
+        echo "=== RTL8812AU clone diagnostics ==="
+        getent hosts github.com >/dev/null 2>&1 && echo "github.com DNS: OK ($(getent hosts github.com | awk '{print $1}' | head -1))" || echo "github.com DNS: FAIL"
+        env | grep -iE '^http_proxy|^https_proxy|^no_proxy|^HTTP_' || echo "(no proxy env vars)"
+        git ls-remote https://github.com/Octocat/Hello-World.git HEAD >/dev/null 2>&1 && echo "public github reachable: YES" || echo "public github reachable: NO"
+        git ls-remote "$CLONE_URL" HEAD >/dev/null 2>&1 && echo "private repo reachable w/ token: YES" || echo "private repo reachable w/ token: NO"
+        # 网络/DNS 偶发，4 次重试、间隔拉长到 30s（同 runner 上 DNS 抖动）
         ok=1
-        for attempt in 1 2 3; do
+        for attempt in 1 2 3 4; do
           if git clone --depth 1 "$CLONE_URL" "$WS/rtl8812au-phantom"; then
             ok=0; break
           fi
-          echo "RTL8812AU clone attempt $attempt failed; retrying in 10s..."
-          rm -rf "$WS/rtl8812au-phantom"; sleep 10
+          echo "RTL8812AU clone attempt $attempt failed; retrying in 30s..."
+          rm -rf "$WS/rtl8812au-phantom"; sleep 30
         done
         if [ "$ok" -ne 0 ]; then
-          echo "::error::failed to clone ${RTL8812AU_REPO} after 3 attempts (likely transient DNS on this runner - rerun the job on a fresh runner)"
+          echo "::error::failed to clone ${RTL8812AU_REPO} after 4 attempts — see diagnostics above (DNS/proxy/token); rerun the job on a fresh runner"
           exit 1
         fi
         echo "Cloned ${RTL8812AU_REPO} ($(git -C "$WS/rtl8812au-phantom" rev-parse --short HEAD))"
