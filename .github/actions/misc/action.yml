@@ -29,4 +29,9 @@ runs:
           CONFIG_TMPFS_POSIX_ACL=y
           CONFIG_KALLSYMS=y
           CONFIG_KALLSYMS_ALL=y
-          
+          # RTL8812AU (Kali Nethunter wifi attack driver) needs the kernel's
+          # cfg80211: its 31 cfg80211_*/wiphy_*/ieee80211_* symbols must be in
+          # Module.symvers so the external module's modpost resolves them, and
+          # =y (built-in) means no extra .ko dependency at flash/insmod time.
+          # GKI's gki_defconfig does not enable cfg80211.
+          CONFIG_CFG80211=y

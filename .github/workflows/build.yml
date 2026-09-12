@@ -591,10 +591,17 @@ jobs:
           make -C "$KSRC" $MAKE_ARGS gki_defconfig
           make -C "$KSRC" $MAKE_ARGS -j"$(nproc)" modules_prepare
         fi
+        # 外部模块构建必须把内核已生成的 Module.symvers 交给 modpost，
+        # 否则 35 个跨模块符号（kernel_read/yield/cfg80211_*…）全部 undefined。
+        # KOUT 有值时 symvers 在 $KOUT，否则 in-tree 在 $KSRC。
+        SYMS="${KOUT:-$KSRC}/Module.symvers"
+        if [ ! -f "$SYMS" ]; then echo "::error::kernel Module.symvers not found at $SYMS — 'Build Normal Kernel' must run first"; exit 1; fi
+        echo "Using kernel Module.symvers: $SYMS ($(grep -c ' ' "$SYMS") entries)"
         make -C "$KSRC" $MAKE_ARGS -j"$(nproc)" \
           CONFIG_PLATFORM_ANDROID_ARM64=y \
           CONFIG_88XXAU=m \
-          M="$DRIVER" modules
+          M="$DRIVER" \
+          KBUILD_EXTRA_SYMBOLS="$SYMS" modules
         mkdir -p "$WS/AnyKernel3/modules"
         cp -v "$DRIVER"/*.ko "$WS/AnyKernel3/modules/"
         echo "RTL8812AU module built and packaged into AnyKernel3/modules"
