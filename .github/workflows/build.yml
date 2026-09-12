@@ -603,20 +603,23 @@ jobs:
         # 治本: 只喂驱动真正用到的 35 个符号 (4 核心 + 31 无线, cfg80211=y 时
         # 全内置)。media_entity_pads_init 不在其中, 不进 modpost 视野 -> 不
         # dup; 35 个都在且各一行 -> 不 undefined。
-        SYMS_FULL="${KOUT:-$KSRC}/Module.symvers"
-        if [ ! -f "$SYMS_FULL" ]; then echo "::error::kernel Module.symvers not found at $SYMS_FULL — 'Build Normal Kernel' must run first"; exit 1; fi
+        VSYMS="${KOUT:-$KSRC}/vmlinux.symvers"
+        MSYMS="${KOUT:-$KSRC}/Module.symvers"
         SYMS_FILTER="${KOUT:-$KSRC}/Module.symvers.rtl8812"
-        RTL_RE='^(kernel_read|kernel_write|yield|proc_get_parent_data|wiphy_new_nm|wiphy_register|wiphy_unregister|wiphy_free|wiphy_apply_custom_regulatory|cfg80211_mgmt_tx_status|cfg80211_ready_on_channel|cfg80211_rx_mgmt_khz|cfg80211_del_sta_sinfo|cfg80211_connect_done|cfg80211_inform_bss_frame_data|cfg80211_new_sta|cfg80211_sinfo_alloc_tid_stats|cfg80211_cqm_rssi_notify|cfg80211_unlink_bss|cfg80211_scan_done|cfg80211_disconnected|cfg80211_roamed|cfg80211_ibss_joined|cfg80211_get_bss|cfg80211_put_bss|cfg80211_ch_switch_notify|cfg80211_ch_switch_started_notify|cfg80211_michael_mic_failure|cfg80211_remain_on_channel_expired|ieee80211_channel_to_freq_khz|ieee80211_freq_khz_to_channel|ieee80211_get_channel_khz|ieee80211_radiotap_iterator_init|ieee80211_radiotap_iterator_next)$'
-        # symvers 列布局随 MODVERSIONS 变: =y 时 "0xcrc<TAB>sym<TAB>mod<TAB>type"
-        # (sym=$2), =n 时 "sym<TAB>mod<TAB>type" (sym=$1)。不再假设列号, 逐字段
-        # 整词匹配; 按符号名去重, 防同符号跨段出现 -> "exported twice"。
-        awk -F'\t' -v re="$RTL_RE" '{ for(i=1;i<=NF;i++) if($i ~ re && !seen[$i]++){ print; break } }' "$SYMS_FULL" > "$SYMS_FILTER"
+        RTL_RE='^(kernel_read|kernel_write|yield|proc_get_parent_data|wiphy_new_nm|wiphy_register|wiphy_unregister|wiphy_free|wiphy_apply_custom_regulatory|cfg80211_mgmt_tx_status|cfg80211_ready_on_channel|cfg80211_rx_mgmt_khz|cfg80211_del_sta_sinfo|cfg80211_connect_done|cfg80211_inform_bss_frame_data|cfg80211_new_sta|cfg80211_sinfo_alloc_tid_stats|cfg80211_cqm_rssi_notify|cfg80211_unlink_bss|cfg80211_scan_done|cfg80211_disconnected|cfg80211_roamed|cfg80211_ibss_joined|cfg80211_get_bss|cfg80211_put_bss|cfg80211_ch_switch_notify|cfg80211_ch_switch_started_notify|cfg80211_michael_mic_failure|cfg80211_external_auth_request|cfg80211_remain_on_channel_expired|ieee80211_channel_to_freq_khz|ieee80211_freq_khz_to_channel|ieee80211_get_channel_khz|ieee80211_radiotap_iterator_init|ieee80211_radiotap_iterator_next)$'
+        # 35 个符号在 cfg80211=y 时全是 vmlinux 内置, 记录在 vmlinux.symvers;
+        # Module.symvers 只有模块段。两个一起喂, 按符号名全局去重(跨文件),
+        # media_entity_pads_init 不在 RTL_RE 里 -> 天然排除, 不会 "exported
+        # twice"(而且 modpost.c:429 的 exported twice 本就是 warn 非 fatal)。
+        # 列布局随 MODVERSIONS 变, 逐字段整词匹配不假设列号。
+        awk -F'\t' -v re="$RTL_RE" '{ for(i=1;i<=NF;i++) if($i ~ re){ sym=$i; if(!seen[sym]++){ print; break } } }' "$VSYMS" "$MSYMS" > "$SYMS_FILTER"
         echo "Feeding modpost: $SYMS_FILTER ($(wc -l < "$SYMS_FILTER") of 35 symbols; media_entity_pads_init excluded)"
-        # 诊断: 万一再翻车, 直接看 GKI 真实 symvers 列格式 (cat -A 显示 tab)
-        echo "=== SYMS_FULL head (cat -A) ==="; head -3 "$SYMS_FULL" | cat -A
+        # 诊断: 万一再翻车, 直接看两个源文件的真实行格式 (cat -A 显示 tab/CRC)
+        echo "=== vmlinux.symvers: $(wc -l < "$VSYMS" 2>/dev/null || echo MISSING) lines; head ==="; head -5 "$VSYMS" 2>/dev/null | cat -A
+        echo "=== Module.symvers: $(wc -l < "$MSYMS" 2>/dev/null || echo MISSING) lines; head ==="; head -5 "$MSYMS" 2>/dev/null | cat -A
         echo "=== SYMS_FILTER full content (cat -A) ==="; cat -A "$SYMS_FILTER"
         # 核对 35 个是否都在 (列号无关, 整词匹配), 缺了 modpost 会 undefined
-        for s in kernel_read kernel_write yield proc_get_parent_data wiphy_new_nm wiphy_register wiphy_unregister wiphy_free wiphy_apply_custom_regulatory cfg80211_mgmt_tx_status cfg80211_ready_on_channel cfg80211_rx_mgmt_khz cfg80211_del_sta_sinfo cfg80211_connect_done cfg80211_inform_bss_frame_data cfg80211_new_sta cfg80211_sinfo_alloc_tid_stats cfg80211_cqm_rssi_notify cfg80211_unlink_bss cfg80211_scan_done cfg80211_disconnected cfg80211_roamed cfg80211_ibss_joined cfg80211_get_bss cfg80211_put_bss cfg80211_ch_switch_notify cfg80211_ch_switch_started_notify cfg80211_michael_mic_failure cfg80211_remain_on_channel_expired ieee80211_channel_to_freq_khz ieee80211_freq_khz_to_channel ieee80211_get_channel_khz ieee80211_radiotap_iterator_init ieee80211_radiotap_iterator_next; do
+        for s in kernel_read kernel_write yield proc_get_parent_data wiphy_new_nm wiphy_register wiphy_unregister wiphy_free wiphy_apply_custom_regulatory cfg80211_mgmt_tx_status cfg80211_ready_on_channel cfg80211_rx_mgmt_khz cfg80211_del_sta_sinfo cfg80211_connect_done cfg80211_inform_bss_frame_data cfg80211_new_sta cfg80211_sinfo_alloc_tid_stats cfg80211_cqm_rssi_notify cfg80211_unlink_bss cfg80211_scan_done cfg80211_disconnected cfg80211_roamed cfg80211_ibss_joined cfg80211_get_bss cfg80211_put_bss cfg80211_ch_switch_notify cfg80211_ch_switch_started_notify cfg80211_michael_mic_failure cfg80211_external_auth_request cfg80211_remain_on_channel_expired ieee80211_channel_to_freq_khz ieee80211_freq_khz_to_channel ieee80211_get_channel_khz ieee80211_radiotap_iterator_init ieee80211_radiotap_iterator_next; do
           awk -F'\t' -v s="$s" '{ for(i=1;i<=NF;i++) if($i==s){f=1} } END{ if(!f) exit 1 }' "$SYMS_FILTER" || echo "::error:: symbol $s missing from filtered symvers"
         done
         make -C "$KSRC" $MAKE_ARGS -j"$(nproc)" \
