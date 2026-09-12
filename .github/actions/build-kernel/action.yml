@@ -31,6 +31,8 @@ runs:
         CXX="/usr/bin/ccache clang++" \
         HOSTCC="/usr/bin/ccache clang" \
         HOSTCXX="/usr/bin/ccache clang++" \
+        TRIM_NONLISTED_KMI=0 \
+        KMI_SYMBOL_LIST_STRICT_MODE=0 \
         build/build.sh -j"$(nproc)"
       else
         sed -i '/name = "kernel_aarch64",/a\    check_defconfig = "disabled",' common/BUILD.bazel
