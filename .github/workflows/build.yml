@@ -606,22 +606,37 @@ jobs:
         VSYMS="${KOUT:-$KSRC}/vmlinux.symvers"
         MSYMS="${KOUT:-$KSRC}/Module.symvers"
         SYMS_FILTER="${KOUT:-$KSRC}/Module.symvers.rtl8812"
-        RTL_RE='^(kernel_read|kernel_write|yield|proc_get_parent_data|wiphy_new_nm|wiphy_register|wiphy_unregister|wiphy_free|wiphy_apply_custom_regulatory|cfg80211_mgmt_tx_status|cfg80211_ready_on_channel|cfg80211_rx_mgmt_khz|cfg80211_del_sta_sinfo|cfg80211_connect_done|cfg80211_inform_bss_frame_data|cfg80211_new_sta|cfg80211_sinfo_alloc_tid_stats|cfg80211_cqm_rssi_notify|cfg80211_unlink_bss|cfg80211_scan_done|cfg80211_disconnected|cfg80211_roamed|cfg80211_ibss_joined|cfg80211_get_bss|cfg80211_put_bss|cfg80211_ch_switch_notify|cfg80211_ch_switch_started_notify|cfg80211_michael_mic_failure|cfg80211_external_auth_request|cfg80211_remain_on_channel_expired|ieee80211_channel_to_freq_khz|ieee80211_freq_khz_to_channel|ieee80211_get_channel_khz|ieee80211_radiotap_iterator_init|ieee80211_radiotap_iterator_next)$'
-        # 35 个符号在 cfg80211=y 时全是 vmlinux 内置, 记录在 vmlinux.symvers;
-        # Module.symvers 只有模块段。两个一起喂, 按符号名全局去重(跨文件),
-        # media_entity_pads_init 不在 RTL_RE 里 -> 天然排除, 不会 "exported
-        # twice"(而且 modpost.c:429 的 exported twice 本就是 warn 非 fatal)。
-        # 列布局随 MODVERSIONS 变, 逐字段整词匹配不假设列号。
-        awk -F'\t' -v re="$RTL_RE" '{ for(i=1;i<=NF;i++) if($i ~ re){ sym=$i; if(!seen[sym]++){ print; break } } }' "$VSYMS" "$MSYMS" > "$SYMS_FILTER"
-        echo "Feeding modpost: $SYMS_FILTER ($(wc -l < "$SYMS_FILTER") of 35 symbols; media_entity_pads_init excluded)"
-        # 诊断: 万一再翻车, 直接看两个源文件的真实行格式 (cat -A 显示 tab/CRC)
-        echo "=== vmlinux.symvers: $(wc -l < "$VSYMS" 2>/dev/null || echo MISSING) lines; head ==="; head -5 "$VSYMS" 2>/dev/null | cat -A
-        echo "=== Module.symvers: $(wc -l < "$MSYMS" 2>/dev/null || echo MISSING) lines; head ==="; head -5 "$MSYMS" 2>/dev/null | cat -A
-        echo "=== SYMS_FILTER full content (cat -A) ==="; cat -A "$SYMS_FILTER"
-        # 核对 35 个是否都在 (列号无关, 整词匹配), 缺了 modpost 会 undefined
-        for s in kernel_read kernel_write yield proc_get_parent_data wiphy_new_nm wiphy_register wiphy_unregister wiphy_free wiphy_apply_custom_regulatory cfg80211_mgmt_tx_status cfg80211_ready_on_channel cfg80211_rx_mgmt_khz cfg80211_del_sta_sinfo cfg80211_connect_done cfg80211_inform_bss_frame_data cfg80211_new_sta cfg80211_sinfo_alloc_tid_stats cfg80211_cqm_rssi_notify cfg80211_unlink_bss cfg80211_scan_done cfg80211_disconnected cfg80211_roamed cfg80211_ibss_joined cfg80211_get_bss cfg80211_put_bss cfg80211_ch_switch_notify cfg80211_ch_switch_started_notify cfg80211_michael_mic_failure cfg80211_external_auth_request cfg80211_remain_on_channel_expired ieee80211_channel_to_freq_khz ieee80211_freq_khz_to_channel ieee80211_get_channel_khz ieee80211_radiotap_iterator_init ieee80211_radiotap_iterator_next; do
-          awk -F'\t' -v s="$s" '{ for(i=1;i<=NF;i++) if($i==s){f=1} } END{ if(!f) exit 1 }' "$SYMS_FILTER" || echo "::error:: symbol $s missing from filtered symvers"
-        done
+        # 35 个符号 (4 核心 + 31 无线) 在 cfg80211=y 时全是 vmlinux 内置导出,
+        # 记录在内核 symvers 里 (v3 喂聚合表时 35 全解析过, 实证符号在文件中)。
+        # 但喂整张表会带进 GKI 的 media_entity_pads_init 重复条目 -> FATAL
+        # "exported twice" (v3 实证)。v6-v8 用 awk 筛全 0 命中 (runner awk 环境
+        # 症状, 本地 mawk/gawk 同写法均绿), v9 弃用 awk, 换 grep -wF: 固定串
+        # 整词匹配, 无正则引擎/无列位置假设/无 awk 变量传递。逐符号 -m1 取首个
+        # 命中: vmlinux.symvers 优先, 缺失落 Module.symvers, 每符号 <=1 行
+        # (天然去重); media_entity_pads_init 不在清单, 天然排除。
+        SYMS_LIST="$WS/rtl35.symnames"
+        printf '%s\n' kernel_read kernel_write yield proc_get_parent_data wiphy_new_nm wiphy_register wiphy_unregister wiphy_free wiphy_apply_custom_regulatory cfg80211_mgmt_tx_status cfg80211_ready_on_channel cfg80211_rx_mgmt_khz cfg80211_del_sta_sinfo cfg80211_connect_done cfg80211_inform_bss_frame_data cfg80211_new_sta cfg80211_sinfo_alloc_tid_stats cfg80211_cqm_rssi_notify cfg80211_unlink_bss cfg80211_scan_done cfg80211_disconnected cfg80211_roamed cfg80211_ibss_joined cfg80211_get_bss cfg80211_put_bss cfg80211_ch_switch_notify cfg80211_ch_switch_started_notify cfg80211_michael_mic_failure cfg80211_external_auth_request cfg80211_remain_on_channel_expired ieee80211_channel_to_freq_khz ieee80211_freq_khz_to_channel ieee80211_get_channel_khz ieee80211_radiotap_iterator_init ieee80211_radiotap_iterator_next > "$SYMS_LIST"
+        : > "$SYMS_FILTER"
+        while IFS= read -r s; do
+          grep -h -w -F -m1 -e "$s" "$VSYMS" >> "$SYMS_FILTER" && continue
+          grep -h -w -F -m1 -e "$s" "$MSYMS" >> "$SYMS_FILTER" && continue
+          echo "::warning:: symbol $s not found in vmlinux.symvers/Module.symvers"
+        done < "$SYMS_LIST"
+        N35=$(wc -l < "$SYMS_FILTER")
+        echo "Feeding modpost: $SYMS_FILTER ($N35 of 35 symbols; media_entity_pads_init excluded)"
+        # 诊断: 若再翻车, 直接见 runner 的 awk 环境与源文件真实内容
+        echo "=== awk: $(command -v awk) / $(awk --version 2>/dev/null || awk -W version 2>&1 || true) | first line ==="
+        echo "=== awk NF check (-F tab) ==="; awk 'BEGIN{FS="\t"} NR==1{print "NF="NF; exit}' "$MSYMS" 2>/dev/null || echo "NF check skipped (file missing?)"
+        echo "=== awk single-symbol test ($2==kernel_read) ==="; awk -F'\t' '$2=="kernel_read"{print "AWK-HIT"; exit}' "$VSYMS" 2>/dev/null || echo "awk test failed"
+        echo "=== vmlinux.symvers: $(wc -l < "$VSYMS" 2>/dev/null || echo MISSING) lines ==="; (head -3 "$VSYMS" 2>/dev/null || true) | cat -A
+        echo "=== Module.symvers: $(wc -l < "$MSYMS" 2>/dev/null || echo MISSING) lines ==="; (head -3 "$MSYMS" 2>/dev/null || true) | cat -A
+        echo "kernel_read in VSYMS: $(grep -wcF 'kernel_read' "$VSYMS" 2>/dev/null || true), in MSYMS: $(grep -wcF 'kernel_read' "$MSYMS" 2>/dev/null || true)"
+        echo "cfg80211_scan_done in VSYMS: $(grep -wcF 'cfg80211_scan_done' "$VSYMS" 2>/dev/null || true), in MSYMS: $(grep -wcF 'cfg80211_scan_done' "$MSYMS" 2>/dev/null || true)"
+        echo "=== SYMS_FILTER content (cat -A, head 40) ==="; (cat -A "$SYMS_FILTER" 2>/dev/null || true) | head -40
+        if [ "$N35" -lt 35 ]; then
+          echo "::error:: only $N35/35 symbols extracted from symvers — see diagnostics above; aborting before make"
+          exit 1
+        fi
         make -C "$KSRC" $MAKE_ARGS -j"$(nproc)" \
           CONFIG_PLATFORM_ANDROID_ARM64=y \
           CONFIG_88XXAU=m \
