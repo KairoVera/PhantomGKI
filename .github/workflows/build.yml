@@ -596,12 +596,17 @@ jobs:
         # KOUT 有值时 symvers 在 $KOUT，否则 in-tree 在 $KSRC。
         SYMS="${KOUT:-$KSRC}/Module.symvers"
         if [ ! -f "$SYMS" ]; then echo "::error::kernel Module.symvers not found at $SYMS — 'Build Normal Kernel' must run first"; exit 1; fi
-        echo "Using kernel Module.symvers: $SYMS ($(grep -c ' ' "$SYMS") entries)"
+        # GKI 内核的 Module.symvers 可能把某个内置符号同时记在 vmlinux 和它的
+        # 模块路径下（例：media_entity_pads_init），modpost 会 FATAL "exported
+        # twice"。喂给外部模块前按第 2 列（符号名）去重，每符号保留一行。
+        SYMS_CLEAN="${KOUT:-$KSRC}/Module.symvers.dedup"
+        awk -F'\t' '!seen[$2]++' "$SYMS" > "$SYMS_CLEAN"
+        echo "Using kernel Module.symvers: $SYMS ($(wc -l < "$SYMS") lines -> deduped $(wc -l < "$SYMS_CLEAN"))"
         make -C "$KSRC" $MAKE_ARGS -j"$(nproc)" \
           CONFIG_PLATFORM_ANDROID_ARM64=y \
           CONFIG_88XXAU=m \
           M="$DRIVER" \
-          KBUILD_EXTRA_SYMBOLS="$SYMS" modules
+          KBUILD_EXTRA_SYMBOLS="$SYMS_CLEAN" modules
         mkdir -p "$WS/AnyKernel3/modules"
         cp -v "$DRIVER"/*.ko "$WS/AnyKernel3/modules/"
         echo "RTL8812AU module built and packaged into AnyKernel3/modules"
