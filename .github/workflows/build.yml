@@ -591,21 +591,23 @@ jobs:
           make -C "$KSRC" $MAKE_ARGS gki_defconfig
           make -C "$KSRC" $MAKE_ARGS -j"$(nproc)" modules_prepare
         fi
-        # 外部模块的 modpost 用 O=$KOUT 时会自动读取内核构建产出的
-        # $KOUT/Module.symvers（聚合 = vmlinux 内置导出 + 各模块导出），
-        # 已含驱动需要的全部符号：cfg80211=y 后 31 个 cfg80211_*/wiphy_*/
-        # ieee80211_* 进 vmlinux 段，kernel_read/kernel_write/yield/
-        # proc_get_parent_data 是 vmlinux 内置导出（已核实 5.10 源码均
-        # EXPORT_SYMBOL）。不要再用 KBUILD_EXTRA_SYMBOLS 指回同一份
-        # 聚合文件——modpost 会因此把 vmlinux 段符号（如 media_entity_
-        # pads_init）读两次而 FATAL "exported twice"。O=$KOUT 即足够。
-        SYMS="${KOUT:-$KSRC}/Module.symvers"
-        if [ ! -f "$SYMS" ]; then echo "::error::kernel Module.symvers not found at $SYMS — 'Build Normal Kernel' must run first"; exit 1; fi
-        echo "External module modpost will auto-load: $SYMS ($(wc -l < "$SYMS") lines, via O=$KOUT)"
+        # 外部模块 M= 构建不会自动读内核 symvers (v4 实测 35 全 undefined)，
+        # 必须显式喂 KBUILD_EXTRA_SYMBOLS。喂 聚合 Module.symvers 会
+        # "exported twice" (v3 实测 media_entity_pads_init: 聚合含 vmlinux 段,
+        # 该内置符号被读两遍)。vmlinux.symvers 是纯 vmlinux 内置段、每符号
+        # 一行, cfg80211=y 后 31 个无线符号 + 4 核心符号全在其中, 喂它不撞车。
+        SYMS="${KOUT:-$KSRC}/vmlinux.symvers"
+        if [ ! -f "$SYMS" ]; then
+          echo "::warning:: vmlinux.symvers not found, falling back to Module.symvers"
+          SYMS="${KOUT:-$KSRC}/Module.symvers"
+        fi
+        if [ ! -f "$SYMS" ]; then echo "::error::kernel symvers not found at $SYMS — 'Build Normal Kernel' must run first"; exit 1; fi
+        echo "Feeding modpost KBUILD_EXTRA_SYMBOLS: $SYMS ($(wc -l < "$SYMS") lines)"
         make -C "$KSRC" $MAKE_ARGS -j"$(nproc)" \
           CONFIG_PLATFORM_ANDROID_ARM64=y \
           CONFIG_88XXAU=m \
-          M="$DRIVER" modules
+          M="$DRIVER" \
+          KBUILD_EXTRA_SYMBOLS="$SYMS" modules
         mkdir -p "$WS/AnyKernel3/modules"
         cp -v "$DRIVER"/*.ko "$WS/AnyKernel3/modules/"
         echo "RTL8812AU module built and packaged into AnyKernel3/modules"
