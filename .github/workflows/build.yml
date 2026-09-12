@@ -591,50 +591,49 @@ jobs:
           make -C "$KSRC" $MAKE_ARGS gki_defconfig
           make -C "$KSRC" $MAKE_ARGS -j"$(nproc)" modules_prepare
         fi
-        # 外部模块 M= 构建不会自动读内核 symvers (v4 实测 35 全 undefined)，
-        # 必须显式喂 KBUILD_EXTRA_SYMBOLS。喂 聚合 Module.symvers 会
-        # "exported twice" (v3 实测 media_entity_pads_init: 聚合含 vmlinux 段,
-        # 该内置符号被读两遍)。vmlinux.symvers 是纯 vmlinux 内置段、每符号
-        # 一行, cfg80211=y 后 31 个无线符号 + 4 核心符号全在其中, 喂它不撞车。
-        # 外部模块 M= 构建不会自动读内核 symvers (v4 实测 35 全 undefined)，
-        # 必须显式喂 KBUILD_EXTRA_SYMBOLS。但喂"整张"表(聚合 Module.symvers 或
-        # 整份 vmlinux.symvers)会让 modpost 把 vmlinux 内置段里的
-        # media_entity_pads_init 记两遍 -> FATAL "exported twice" (v3/v5 实测)。
-        # 治本: 只喂驱动真正用到的 35 个符号 (4 核心 + 31 无线, cfg80211=y 时
-        # 全内置)。media_entity_pads_init 不在其中, 不进 modpost 视野 -> 不
-        # dup; 35 个都在且各一行 -> 不 undefined。
         VSYMS="${KOUT:-$KSRC}/vmlinux.symvers"
         MSYMS="${KOUT:-$KSRC}/Module.symvers"
+        # External M= builds: modpost sees the kernel's symbols ONLY through
+        # KBUILD_EXTRA_SYMBOLS, so feed it the kernel's full export tables,
+        # deduplicated by symbol name. Dedup matters: GKI's symvers files
+        # contain both vmlinux and module sections, and the GKI-patched
+        # modpost treats a symbol listed twice as a FATAL "exported twice".
+        # Column-agnostic: MODVERSIONS=y -> $1 is 0xcrc, symbol is $2;
+        # MODVERSIONS=n -> symbol is $1. C identifiers never look like
+        # 0x-hex, so the detection below is safe.
         SYMS_FILTER="${KOUT:-$KSRC}/Module.symvers.rtl8812"
-        # 35 个符号 (4 核心 + 31 无线) 在 cfg80211=y 时全是 vmlinux 内置导出,
-        # 记录在内核 symvers 里 (v3 喂聚合表时 35 全解析过, 实证符号在文件中)。
-        # 但喂整张表会带进 GKI 的 media_entity_pads_init 重复条目 -> FATAL
-        # "exported twice" (v3 实证)。v6-v8 用 awk 筛全 0 命中 (runner awk 环境
-        # 症状, 本地 mawk/gawk 同写法均绿), v9 弃用 awk, 换 grep -wF: 固定串
-        # 整词匹配, 无正则引擎/无列位置假设/无 awk 变量传递。逐符号 -m1 取首个
-        # 命中: vmlinux.symvers 优先, 缺失落 Module.symvers, 每符号 <=1 行
-        # (天然去重); media_entity_pads_init 不在清单, 天然排除。
-        SYMS_LIST="$WS/rtl35.symnames"
-        printf '%s\n' kernel_read kernel_write yield proc_get_parent_data wiphy_new_nm wiphy_register wiphy_unregister wiphy_free wiphy_apply_custom_regulatory cfg80211_mgmt_tx_status cfg80211_ready_on_channel cfg80211_rx_mgmt_khz cfg80211_del_sta_sinfo cfg80211_connect_done cfg80211_inform_bss_frame_data cfg80211_new_sta cfg80211_sinfo_alloc_tid_stats cfg80211_cqm_rssi_notify cfg80211_unlink_bss cfg80211_scan_done cfg80211_disconnected cfg80211_roamed cfg80211_ibss_joined cfg80211_get_bss cfg80211_put_bss cfg80211_ch_switch_notify cfg80211_ch_switch_started_notify cfg80211_michael_mic_failure cfg80211_external_auth_request cfg80211_remain_on_channel_expired ieee80211_channel_to_freq_khz ieee80211_freq_khz_to_channel ieee80211_get_channel_khz ieee80211_radiotap_iterator_init ieee80211_radiotap_iterator_next > "$SYMS_LIST"
-        : > "$SYMS_FILTER"
-        while IFS= read -r s; do
-          grep -h -w -F -m1 -e "$s" "$VSYMS" >> "$SYMS_FILTER" && continue
-          grep -h -w -F -m1 -e "$s" "$MSYMS" >> "$SYMS_FILTER" && continue
-          echo "::warning:: symbol $s not found in vmlinux.symvers/Module.symvers"
-        done < "$SYMS_LIST"
-        N35=$(wc -l < "$SYMS_FILTER")
-        echo "Feeding modpost: $SYMS_FILTER ($N35 of 35 symbols; media_entity_pads_init excluded)"
-        # 诊断: 若再翻车, 直接见 runner 的 awk 环境与源文件真实内容
-        echo "=== awk: $(command -v awk) / $(awk --version 2>/dev/null || awk -W version 2>&1 || true) | first line ==="
-        echo "=== awk NF check (-F tab) ==="; awk 'BEGIN{FS="\t"} NR==1{print "NF="NF; exit}' "$MSYMS" 2>/dev/null || echo "NF check skipped (file missing?)"
-        echo "=== awk single-symbol test ($2==kernel_read) ==="; awk -F'\t' '$2=="kernel_read"{print "AWK-HIT"; exit}' "$VSYMS" 2>/dev/null || echo "awk test failed"
-        echo "=== vmlinux.symvers: $(wc -l < "$VSYMS" 2>/dev/null || echo MISSING) lines ==="; (head -3 "$VSYMS" 2>/dev/null || true) | cat -A
-        echo "=== Module.symvers: $(wc -l < "$MSYMS" 2>/dev/null || echo MISSING) lines ==="; (head -3 "$MSYMS" 2>/dev/null || true) | cat -A
-        echo "kernel_read in VSYMS: $(grep -wcF 'kernel_read' "$VSYMS" 2>/dev/null || true), in MSYMS: $(grep -wcF 'kernel_read' "$MSYMS" 2>/dev/null || true)"
-        echo "cfg80211_scan_done in VSYMS: $(grep -wcF 'cfg80211_scan_done' "$VSYMS" 2>/dev/null || true), in MSYMS: $(grep -wcF 'cfg80211_scan_done' "$MSYMS" 2>/dev/null || true)"
-        echo "=== SYMS_FILTER content (cat -A, head 40) ==="; (cat -A "$SYMS_FILTER" 2>/dev/null || true) | head -40
-        if [ "$N35" -lt 35 ]; then
-          echo "::error:: only $N35/35 symbols extracted from symvers — see diagnostics above; aborting before make"
+        SYMS_SRCS=()
+        [ -f "$VSYMS" ] && SYMS_SRCS+=("$VSYMS")
+        [ -f "$MSYMS" ] && SYMS_SRCS+=("$MSYMS")
+        if [ "${#SYMS_SRCS[@]}" -eq 0 ]; then
+          echo "::error:: no symvers file at $VSYMS / $MSYMS; 'Build Normal Kernel' must run first"
+          exit 1
+        fi
+        awk -F'\t' '{ s=$2; if (s !~ /^0[xX][0-9a-fA-F]+$/) s=$1; if (s != "" && !seen[s]++) print }' "${SYMS_SRCS[@]}" > "$SYMS_FILTER"
+        NFILTER=$(wc -l < "$SYMS_FILTER")
+        printf '[diag] feeding modpost: %s (%s lines)\n' "$SYMS_FILTER" "$NFILTER"
+        # Diagnostics that cannot die under set -u: printf only, single
+        # quoted, || true everywhere.
+        printf '[diag] VSYMS=%s lines=%s | MSYMS=%s lines=%s\n' "$VSYMS" "$(wc -l < "$VSYMS" 2>/dev/null || echo NA)" "$MSYMS" "$(wc -l < "$MSYMS" 2>/dev/null || echo NA)"
+        printf '[diag] head of VSYMS:\n'
+        head -3 "$VSYMS" 2>/dev/null | cat -A
+        printf '[diag] presence probes (VSYMS / MSYMS / filter):\n'
+        for probe in kernel_read kernel_write yield proc_get_parent_data media_entity_pads_init cfg80211_scan_done wiphy_new_nm ieee80211_get_channel_khz; do
+          printf '[diag] %-28s %s / %s / %s\n' "$probe" \
+            "$(grep -c -w -F -- "$probe" "$VSYMS" 2>/dev/null || true)" \
+            "$(grep -c -w -F -- "$probe" "$MSYMS" 2>/dev/null || true)" \
+            "$(grep -c -w -F -- "$probe" "$SYMS_FILTER" 2>/dev/null || true)"
+        done
+        printf '[diag] all *.symvers under the kernel out dir (in case the symbols live elsewhere):\n'
+        find "${KOUT:-$KSRC}" -maxdepth 3 -name '*.symvers' 2>/dev/null | while read -r sf; do
+          printf '[diag]   %s : %s lines ; kernel_read=%s cfg80211_scan_done=%s media=%s\n' \
+            "$sf" "$(wc -l < "$sf" 2>/dev/null || echo NA)" \
+            "$(grep -c -w -F -- kernel_read "$sf" 2>/dev/null || true)" \
+            "$(grep -c -w -F -- cfg80211_scan_done "$sf" 2>/dev/null || true)" \
+            "$(grep -c -w -F -- media_entity_pads_init "$sf" 2>/dev/null || true)"
+        done
+        if [ "$NFILTER" -eq 0 ]; then
+          echo "::error:: symvers filter is empty ($SYMS_FILTER) — see [diag] above; aborting before make"
           exit 1
         fi
         make -C "$KSRC" $MAKE_ARGS -j"$(nproc)" \
