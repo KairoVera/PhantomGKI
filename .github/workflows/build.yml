@@ -591,22 +591,21 @@ jobs:
           make -C "$KSRC" $MAKE_ARGS gki_defconfig
           make -C "$KSRC" $MAKE_ARGS -j"$(nproc)" modules_prepare
         fi
-        # 外部模块构建必须把内核已生成的 Module.symvers 交给 modpost，
-        # 否则 35 个跨模块符号（kernel_read/yield/cfg80211_*…）全部 undefined。
-        # KOUT 有值时 symvers 在 $KOUT，否则 in-tree 在 $KSRC。
+        # 外部模块的 modpost 用 O=$KOUT 时会自动读取内核构建产出的
+        # $KOUT/Module.symvers（聚合 = vmlinux 内置导出 + 各模块导出），
+        # 已含驱动需要的全部符号：cfg80211=y 后 31 个 cfg80211_*/wiphy_*/
+        # ieee80211_* 进 vmlinux 段，kernel_read/kernel_write/yield/
+        # proc_get_parent_data 是 vmlinux 内置导出（已核实 5.10 源码均
+        # EXPORT_SYMBOL）。不要再用 KBUILD_EXTRA_SYMBOLS 指回同一份
+        # 聚合文件——modpost 会因此把 vmlinux 段符号（如 media_entity_
+        # pads_init）读两次而 FATAL "exported twice"。O=$KOUT 即足够。
         SYMS="${KOUT:-$KSRC}/Module.symvers"
         if [ ! -f "$SYMS" ]; then echo "::error::kernel Module.symvers not found at $SYMS — 'Build Normal Kernel' must run first"; exit 1; fi
-        # GKI 内核的 Module.symvers 可能把某个内置符号同时记在 vmlinux 和它的
-        # 模块路径下（例：media_entity_pads_init），modpost 会 FATAL "exported
-        # twice"。喂给外部模块前按第 2 列（符号名）去重，每符号保留一行。
-        SYMS_CLEAN="${KOUT:-$KSRC}/Module.symvers.dedup"
-        awk -F'\t' '!seen[$2]++' "$SYMS" > "$SYMS_CLEAN"
-        echo "Using kernel Module.symvers: $SYMS ($(wc -l < "$SYMS") lines -> deduped $(wc -l < "$SYMS_CLEAN"))"
+        echo "External module modpost will auto-load: $SYMS ($(wc -l < "$SYMS") lines, via O=$KOUT)"
         make -C "$KSRC" $MAKE_ARGS -j"$(nproc)" \
           CONFIG_PLATFORM_ANDROID_ARM64=y \
           CONFIG_88XXAU=m \
-          M="$DRIVER" \
-          KBUILD_EXTRA_SYMBOLS="$SYMS_CLEAN" modules
+          M="$DRIVER" modules
         mkdir -p "$WS/AnyKernel3/modules"
         cp -v "$DRIVER"/*.ko "$WS/AnyKernel3/modules/"
         echo "RTL8812AU module built and packaged into AnyKernel3/modules"
