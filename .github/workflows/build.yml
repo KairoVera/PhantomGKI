@@ -604,6 +604,111 @@ jobs:
         cp -v "$DRIVER"/*.ko "$WS/AnyKernel3/modules/"
         echo "RTL8812AU module built and packaged into AnyKernel3/modules"
 
+    # GKI boot image: a bare arm64 `Image` cannot be flashed directly — the
+    # Qualcomm GKI 1.x ABL expects a bootimg (ANDROID! v4 header + the GKI
+    # first-stage init ramdisk). Repack with the certified GKI ramdisk and
+    # sign with AVB (testkey), exactly like the reference GKI_KernelSU_SUSFS
+    # recipe. Delivered two ways: (a) standalone boot*.img artifacts for
+    # fastboot, (b) embedded into AnyKernel3/ so the AK3 zip carries them.
+    - name: Build GKI Signed Boot Image
+      if: inputs.android_version == 'android12' || inputs.android_version == 'android13'
+      shell: bash
+      run: |
+        set -euo pipefail
+        WS="${{ github.workspace }}"
+        AV="${{ inputs.android_version }}"
+        OSL="${{ inputs.os_patch_level }}"
+        FN="${{ steps.extract.outputs.file_name }}"
+
+        # ---- tooling (self-contained: mkbootimg + avbtool + GKI testkey) ----
+        if [ ! -d "$WS/mkbootimg" ]; then
+          git clone https://android.googlesource.com/platform/system/tools/mkbootimg -b main-kernel-build-2024 --depth 1 "$WS/mkbootimg"
+        fi
+        if [ ! -d "$WS/build-tools" ]; then
+          git clone https://android.googlesource.com/kernel/prebuilts/build-tools -b main-kernel-build-2024 --depth 1 "$WS/build-tools"
+        fi
+        MKBOOTIMG="$WS/mkbootimg/mkbootimg.py"
+        UNPACK="$WS/mkbootimg/unpack_bootimg.py"
+        AVBTOOL="$WS/build-tools/linux-x86/bin/avbtool"
+        KEY="$WS/build-tools/linux-x86/share/avb/testkey_rsa2048.pem"
+        [ -f "$KEY" ] || { echo "::error::AVB GKI testkey not found"; exit 1; }
+
+        # ---- gather kernel image variants ----
+        mkdir -p "$WS/bootimgs" && cd "$WS/bootimgs"
+        cp "$WS/AnyKernel3/Image" ./Image
+        gzip -n -k -f -9 ./Image > ./Image.gz
+        LZ4=0
+        for c in "$WS/kernel/out/${AV}-*/dist/Image.lz4" "$WS/kernel/bazel-bin/common/kernel_aarch64/Image.lz4" /home/runner/out/dist/Image.lz4; do
+          if [ -f "$c" ]; then cp "$c" ./Image.lz4; LZ4=1; break; fi
+        done
+
+        # ---- GKI 1.x (android12): pull the certified first-stage ramdisk ----
+        RAMDISK_ARGS=""
+        OSVER="12.0.0"; [ "$AV" = "android13" ] && OSVER="13.0.0"
+        if [ "$AV" = "android12" ]; then
+          GKI_URL="https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-${OSL}_r1.zip"
+          FALLBACK="https://dl.google.com/android/gki/gki-certified-boot-android12-5.10-2023-01_r1.zip"
+          code="$(curl -sL -w '%{http_code}' "$GKI_URL" -o gki-kernel.zip || true)"
+          if [ "$code" != "200" ]; then
+            echo "certified $OSL unavailable (HTTP $code); using $FALLBACK"
+            curl -sL -o gki-kernel.zip "$FALLBACK"
+          fi
+          unzip -o -q gki-kernel.zip
+          TPL="$(ls -1 boot-*.img 2>/dev/null | head -n1 || true)"
+          [ -n "$TPL" ] || { echo "::error::GKI certified template image missing"; exit 1; }
+          python3 "$UNPACK" --boot_img "$PWD/$TPL"
+          [ -d out ] && [ -s out/ramdisk ] || { echo "::error::GKI first-stage ramdisk missing — cannot build a bootable image"; exit 1; }
+          RAMDISK_ARGS="--ramdisk out/ramdisk"
+          echo "GKI first-stage ramdisk: $(stat -c%s out/ramdisk) bytes"
+        fi
+
+        # ---- assemble + AVB-sign each variant (reference recipe) ----
+        build_variant() {
+          local src="$1" out="$2"
+          local args="--header_version 4 --kernel $src --output $out $RAMDISK_ARGS"
+          [ "$AV" = "android12" ] && args="$args --os_version $OSVER --os_patch_level $OSL"
+          python3 "$MKBOOTIMG" $args
+          "$AVBTOOL" add_hash_footer --partition_name boot --partition_size 67108864 \
+            --image "$out" --algorithm SHA256_RSA2048 --key "$KEY"
+          echo "built $out ($(stat -c%s "$out") bytes)"
+        }
+        build_variant Image boot.img
+        build_variant Image.gz boot-gz.img
+        [ "$LZ4" = "1" ] && build_variant Image.lz4 boot-lz4.img || true
+
+        # ---- deliverables: (a) standalone fastboot artifacts + (b) embedded in AnyKernel3 ----
+        # Plain boot.img (raw kernel + GKI ramdisk, testkey-signed) is what the
+        # AK3 flashes verbatim. The .gz/.lz4 variants stay fastboot-only to
+        # keep the AnyKernel3 zip lean.
+        mkdir -p "$WS/boot-artifacts"
+        cp boot.img     "$WS/boot-artifacts/${FN}-boot.img"
+        cp boot-gz.img  "$WS/boot-artifacts/${FN}-boot-gz.img"
+        if [ "$LZ4" = "1" ]; then cp boot-lz4.img "$WS/boot-artifacts/${FN}-boot-lz4.img"; fi
+        cp boot.img "$WS/AnyKernel3/boot-signed.img"
+        echo "GKI signed boot images ready: ${FN}-boot.img / -boot-gz.img (fastboot) + AnyKernel3/boot-signed.img (AK3 verbatim flash)"
+
+    - name: Install GKI Signed Flash Path in AnyKernel3
+      if: inputs.android_version == 'android12' || inputs.android_version == 'android13'
+      shell: bash
+      run: |
+        set -euo pipefail
+        WS="${{ github.workspace }}"
+        [ -f "$WS/AnyKernel3/boot-signed.img" ] || { echo "::error::boot-signed.img missing - AK3 would flash a bare Image and bootloop"; exit 1; }
+        python3 "$WS/.github/scripts/patch-anykernel-gki-signed.py" "$WS/AnyKernel3/anykernel.sh"
+        bash -n "$WS/AnyKernel3/anykernel.sh" && echo "anykernel.sh GKI signed-flash path installed, syntax OK"
+
+    - name: Upload GKI Boot Images (fastboot)
+      if: inputs.android_version == 'android12' || inputs.android_version == 'android13'
+      uses: actions/upload-artifact@v7
+      with:
+        name: ${{ steps.extract.outputs.file_name }}-boot-images
+        path: |
+          ${{ github.workspace }}/boot-artifacts/*-boot.img
+          ${{ github.workspace }}/boot-artifacts/*-boot-gz.img
+          ${{ github.workspace }}/boot-artifacts/*-boot-lz4.img
+        if-no-files-found: warn
+        compression-level: 9
+
     - name: Get Cache Stats
       uses: ./.github/actions/cache-stats
       with:
